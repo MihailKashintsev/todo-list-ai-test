@@ -41,6 +41,7 @@ const path = require('node:path');
     await page.getByRole('checkbox').first().check();
     if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/todo-desktop.png`, fullPage: true });
     await page.setViewportSize({ width: 375, height: 812 });
+    await page.reload();
     if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/todo-mobile.png`, fullPage: true });
     await add('ОченьДлиннаяЗадача'.repeat(15));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mobile must not overflow');
