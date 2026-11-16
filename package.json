@@ -1,0 +1,8 @@
+{
+  "name": "po-poryadku-todo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Accessible vanilla JavaScript to-do list with localStorage persistence",
+  "scripts": { "test": "node tests/e2e.cjs" },
+  "devDependencies": { "playwright": "1.62.1" }
+}
