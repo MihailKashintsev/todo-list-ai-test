@@ -33,7 +33,7 @@ function Icon({ name, ...props }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[name]}</svg>;
 }
 
-function Task({ task, onToggle, onRemove, animate, register }) {
+function Task({ task, onToggle, onRemove, onCancel, remaining, animate, register }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -49,7 +49,10 @@ function Task({ task, onToggle, onRemove, animate, register }) {
       <span className="check-visual"><Icon name="check" /></span>
       <span className="task-text"><span className="task-words">{task.text}</span></span>
     </label>
-    <button ref={node => register(task.id, node)} type="button" className="delete" aria-label={`Удалить задачу: ${task.text}`} onClick={() => onRemove(task.id)}><Icon name="trash" /></button>
+    <div className="task-actions" ref={node => register(task.id, node)}>
+      {remaining ? <div className="delete-countdown"><span>Удаление через {remaining} с</span><button type="button" className="cancel-delete" aria-label={`Отменить удаление: ${task.text}`} onClick={() => onCancel(task.id)}>Отменить</button></div>
+        : <button type="button" className="delete" aria-label={`Удалить задачу: ${task.text}`} onClick={() => onRemove(task.id)}><Icon name="trash" /></button>}
+    </div>
   </li>;
 }
 
@@ -61,12 +64,25 @@ function App() {
   const [text, setText] = useState('');
   const [status, setStatus] = useState('');
   const [newId, setNewId] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [pending, setPending] = useState({});
+  const [now, setNow] = useState(Date.now());
+  const removalTimers = useRef(new Map());
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
   const input = useRef(null);
   const keyboardSubmit = useRef(false);
   const previousPositions = useRef(new Map());
   const previousPanelHeight = useRef(0);
   const deleteButtons = useRef(new Map());
   const focusAfterDelete = useRef(undefined);
+  const visibleTasks = tasks.filter(task => filter === 'all' || (filter === 'done' ? task.done : !task.done));
+  useEffect(() => {
+    if (!Object.keys(pending).length) return;
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, [pending]);
+  useEffect(() => () => { for (const timer of removalTimers.current.values()) clearTimeout(timer); }, []);
   const completed = tasks.filter(task => task.done).length;
   const percent = tasks.length ? Math.round(completed / tasks.length * 100) : 0;
   const allDone = tasks.length > 0 && completed === tasks.length;
@@ -87,9 +103,9 @@ function App() {
     previousPanelHeight.current = 0;
     previousPositions.current.clear();
     if (focusAfterDelete.current === undefined) return;
-    (deleteButtons.current.get(focusAfterDelete.current) || input.current).focus();
+    (deleteButtons.current.get(focusAfterDelete.current)?.querySelector('button') || input.current).focus();
     focusAfterDelete.current = undefined;
-  }, [tasks]);
+  }, [tasks, pending]);
 
   function commit(next, announcement, force = false) {
     if (blocked && !force) return false;
@@ -99,6 +115,7 @@ function App() {
       setError('Не удалось сохранить изменения. Проверьте, разрешено ли браузеру хранить данные сайта, и попробуйте снова.');
       return false;
     }
+    tasksRef.current = next;
     setTasks(next);
     setError('');
     setStatus(announcement);
@@ -109,14 +126,15 @@ function App() {
     const trimmed = text.trim();
     if (!trimmed) { setText(''); input.current.focus(); return; }
     const id = crypto.randomUUID();
-    if (commit([...tasks, { id, text: trimmed, done: false }], 'Задача добавлена')) {
+    if (commit([...tasksRef.current, { id, text: trimmed, done: false }], 'Задача добавлена')) {
       setNewId(keyboardSubmit.current ? null : id);
       setText(''); input.current.focus();
     }
   }
   function remove(id) {
-    const index = tasks.findIndex(task => task.id === id);
-    const next = tasks.filter(task => task.id !== id);
+    const current = tasksRef.current;
+    const index = current.findIndex(task => task.id === id);
+    const next = current.filter(task => task.id !== id);
     const row = deleteButtons.current.get(id)?.closest('li');
     const positions = new Map([...deleteButtons.current].map(([key, button]) => [key, button.closest('li').getBoundingClientRect().top]));
     positions.set('__summary', document.querySelector('.list-summary').getBoundingClientRect().top);
@@ -127,6 +145,25 @@ function App() {
       dissolve(row);
       focusAfterDelete.current = next[Math.min(index, next.length - 1)]?.id ?? null;
     }
+  }
+  function cancelRemoval(id) {
+    focusAfterDelete.current = id;
+    clearTimeout(removalTimers.current.get(id));
+    removalTimers.current.delete(id);
+    setPending(current => { const next = {...current}; delete next[id]; return next; });
+    setStatus('Удаление отменено');
+  }
+  function scheduleRemoval(id) {
+    if (removalTimers.current.has(id)) return;
+    const deadline = Date.now() + 3000;
+    setNow(Date.now());
+    setPending(current => ({...current, [id]: deadline}));
+    setStatus('Задача будет удалена через 3 секунды. Можно отменить.');
+    removalTimers.current.set(id, setTimeout(() => {
+      removalTimers.current.delete(id);
+      setPending(current => { const next = {...current}; delete next[id]; return next; });
+      remove(id);
+    }, 3000));
   }
   return <main className="workspace">
     <nav className="topbar" aria-label="Заголовок приложения">
@@ -165,11 +202,14 @@ function App() {
         <button id="reset" type="button" hidden={!blocked} onClick={() => {
           if (confirm('Начать новый список? Ранее сохранённые данные будут удалены.') && commit([], 'Создан новый список', true)) setBlocked(false);
         }}>Начать новый список</button>
-        <ul id="task-list" aria-label="Список задач">{tasks.map(task => <Task key={task.id} task={task} animate={task.id === newId} register={(id,node) => node ? deleteButtons.current.set(id,node) : deleteButtons.current.delete(id)} onRemove={remove} onToggle={(id, done) => commit(tasks.map(item => item.id === id ? {...item,done} : item), done ? 'Задача выполнена' : 'Задача возвращена в работу')} />)}</ul>
-        <div id="empty" className="empty" hidden={tasks.length > 0}>
-          <svg className="drawn-arrow" viewBox="0 0 112 66" fill="none" aria-hidden="true"><path className="arrow-stem" pathLength="1" d="M85 57C55 61 22 49 26 24c2-10 11-16 24-17"/><path className="arrow-head" pathLength="1" d="m41 2 11 5-7 11"/></svg>
+        <div className="filters" role="group" aria-label="Фильтр задач">
+          {[['all','Все',tasks.length],['active','В работе',tasks.length-completed],['done','Выполненные',completed]].map(([key,label,count]) => <button type="button" key={key} aria-label={label} aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}<span>{count}</span></button>)}
+        </div>
+        <ul id="task-list" aria-label="Список задач">{visibleTasks.map(task => <Task key={task.id} task={task} animate={task.id === newId} register={(id,node) => node ? deleteButtons.current.set(id,node) : deleteButtons.current.delete(id)} onRemove={scheduleRemoval} onCancel={cancelRemoval} remaining={pending[task.id] ? Math.max(1,Math.ceil((pending[task.id]-now)/1000)) : 0} onToggle={(id, done) => commit(tasksRef.current.map(item => item.id === id ? {...item,done} : item), done ? 'Задача выполнена' : 'Задача возвращена в работу')} />)}</ul>
+        <div id="empty" className="empty" hidden={visibleTasks.length > 0}>
+          <svg hidden={tasks.length > 0} className="drawn-arrow" viewBox="0 0 112 66" fill="none" aria-hidden="true"><path className="arrow-stem" pathLength="1" d="M85 57C55 61 22 49 26 24c2-10 11-16 24-17"/><path className="arrow-head" pathLength="1" d="m41 2 11 5-7 11"/></svg>
           <div className="empty-art" aria-hidden="true"><span className="paper paper-back" /><span className="paper paper-front"><i /><i /><i /><span className="paper-check"><Icon name="check" /></span></span><span className="art-spark">✦</span></div>
-          <h3>С чего начнём?</h3><p>Одно небольшое дело — отличный старт.<br />Добавьте первую задачу в строке выше.</p>
+          <h3>{tasks.length === 0 ? 'С чего начнём?' : filter === 'done' ? 'Всё ещё впереди' : 'Все дела сделаны'}</h3><p>{tasks.length === 0 ? <>Одно небольшое дело — отличный старт.<br />Добавьте первую задачу в строке выше.</> : filter === 'done' ? 'Здесь появятся задачи, которые вы отметите выполненными.' : 'Можно выдохнуть или записать что-нибудь новое.'}</p>
         </div>
         <div className="list-summary"><span id="counter">{completed} из {tasks.length} выполнено</span><span className="summary-note">{allDone ? 'Можно выдохнуть' : 'В своём темпе'}<Icon name={allDone ? 'check' : 'leaf'} /></span></div>
         <p id="status" className="sr-only" role="status" aria-live="polite">{status}</p>
