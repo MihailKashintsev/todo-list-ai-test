@@ -5,7 +5,7 @@ const path = require('node:path');
 
 (async () => {
   const server = spawn('python3', ['-m', 'http.server', '8766', '--bind', '127.0.0.1'], {
-    cwd: path.join(__dirname, '..'), stdio: 'ignore'
+    cwd: path.join(__dirname, '..', 'docs'), stdio: 'ignore'
   });
   let browser;
   try {
@@ -18,8 +18,12 @@ const path = require('node:path');
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto('http://127.0.0.1:8766');
+    assert.equal(await page.getByRole('button', { name: 'Добавить задачу' }).count(), 0, 'Add button is hidden until text is entered');
+    assert.equal(await page.locator('#task-input').getAttribute('required'), null, 'No English browser validation bubble');
     const input = page.getByRole('textbox', { name: 'Новая задача' });
     const add = async text => { await input.fill(text); await input.press('Enter'); };
+    await input.press('Enter');
+    assert.equal(await page.locator('.task').count(), 0);
     await add('   ');
     assert.equal(await page.locator('.task').count(), 0, 'Whitespace must not create a task');
     await add('Собрать портфолио');
@@ -39,10 +43,17 @@ const path = require('node:path');
     assert.equal(await page.getByRole('checkbox').first().isChecked(), false);
     await add('Отправить тестовое задание');
     await page.getByRole('checkbox').first().check();
+    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector('.task-panel').parentElement).opacity) > .99);
     if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/todo-desktop.png`, fullPage: true });
     await page.setViewportSize({ width: 375, height: 812 });
     await page.reload();
+    await page.waitForFunction(() => Number(getComputedStyle(document.querySelector('.task-panel').parentElement).opacity) > .99);
     if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/todo-mobile.png`, fullPage: true });
+    await input.fill('Проверить выравнивание');
+    const buttonBox = await page.locator('.add').boundingBox();
+    const plusBox = await page.locator('.add svg').boundingBox();
+    assert.ok(Math.abs(buttonBox.x + buttonBox.width / 2 - plusBox.x - plusBox.width / 2) < 1, 'Plus is horizontally centered on mobile');
+    assert.ok(Math.abs(buttonBox.y + buttonBox.height / 2 - plusBox.y - plusBox.height / 2) < 1, 'Plus is vertically centered on mobile');
     await add('ОченьДлиннаяЗадача'.repeat(15));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mobile must not overflow');
     // A failed save must keep the last successful data and the unsaved input.
@@ -63,10 +74,24 @@ const path = require('node:path');
     await add('Новый список работает');
     await page.reload();
     assert.equal(await page.locator('.task-text').textContent(), 'Новый список работает');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.task-panel').parentElement).visibility !== 'hidden');
+    await page.getByRole('checkbox').check();
+    assert.equal(await page.locator('.task').evaluate(el => el.classList.contains('done')), true);
     await page.getByRole('button', { name: 'Удалить задачу: Новый список работает', exact: true }).click();
     assert.equal(await page.locator('#empty').isVisible(), true);
     await page.reload();
     assert.equal(await page.locator('.task').count(), 0);
+    await page.evaluate(() => localStorage.setItem('po-poryadku.tasks.v1', JSON.stringify([{id:'legacy-task', text:'Задача из предыдущей версии', done:true}])));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.reload();
+    assert.equal(await page.locator('.task-text').textContent(), 'Задача из предыдущей версии');
+    assert.equal(await page.getByRole('checkbox').isChecked(), true, 'Previous version storage is preserved');
+    await page.getByRole('button', {name:'Удалить задачу: Задача из предыдущей версии'}).click();
+    assert.equal(await page.locator('.task-particle').count(), 28, 'Delete creates a visible particle effect');
+    await page.locator('.dissolve-layer').waitFor({state:'detached'});
+    assert.equal(await page.locator('#empty').isVisible(), true);
     assert.deepEqual(errors, [], 'No uncaught browser errors');
     console.log('PASS: add, whitespace, safe text, toggle, delete, reload persistence, empty state, mobile, failed save, corrupt storage recovery.');
   } finally {

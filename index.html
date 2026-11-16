@@ -6,34 +6,10 @@
   <meta name="theme-color" content="#f5f3eb">
   <meta name="description" content="Простой список задач. Добавляйте, отмечайте и сохраняйте важное.">
   <title>По порядку — список задач</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
 </head>
 <body>
-  <main class="notebook">
-    <header>
-      <p class="eyebrow"><span class="mark" aria-hidden="true">✓</span> ПО ПОРЯДКУ</p>
-      <h1>Меньше в голове.<br><em>Больше сделано.</em></h1>
-      <p class="intro">Запишите важное. Начните с одного дела.</p>
-    </header>
-    <section aria-labelledby="list-heading">
-      <div class="section-title"><h2 id="list-heading">Мои задачи</h2><span id="counter">0 из 0 выполнено</span></div>
-      <form id="task-form">
-        <label class="sr-only" for="task-input">Новая задача</label>
-        <input id="task-input" name="task" placeholder="Что нужно сделать?" maxlength="300" autocomplete="off" required>
-        <button class="add" type="submit" aria-label="Добавить задачу"><span aria-hidden="true">+</span></button>
-      </form>
-      <div id="error" class="error" role="alert" hidden></div>
-      <button id="reset" type="button" hidden>Начать новый список</button>
-      <ul id="task-list" aria-label="Список задач"></ul>
-      <div id="empty" class="empty">
-        <span class="empty-symbol" aria-hidden="true">↗</span>
-        <p>Место для первого дела</p>
-        <span>Добавьте задачу в строке выше.</span>
-      </div>
-      <p id="status" class="sr-only" role="status" aria-live="polite"></p>
-    </section>
-    <footer><span class="storage-dot" aria-hidden="true"></span> Список сохраняется в этом браузере</footer>
-  </main>
+  <div id="root"></div>
+  <noscript>Для работы списка задач включите JavaScript в настройках браузера.</noscript>
+  <script type="module" src="/src/App.jsx"></script>
 </body>
 </html>
